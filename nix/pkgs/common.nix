@@ -62,6 +62,7 @@
     xorg.libXi
     xorg.libXext
     xorg.libxshmfence
+    xorg.libxcb
 
     # Wayland
     wayland
@@ -119,6 +120,7 @@
       xorg.libXi
       xorg.libXext
       xorg.libxshmfence
+      xorg.libxcb
 
       # Wayland
       wayland
@@ -170,6 +172,7 @@
         xorg.libXi
         xorg.libXext
         xorg.libxshmfence
+        xorg.libxcb
 
         # Wayland
         wayland

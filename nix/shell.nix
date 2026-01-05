@@ -35,6 +35,14 @@ in {
   elodin = mkShell (
     {
       name = "elo-unified-shell";
+
+      # Force CMake/Cargo to use the correct Nix compilers
+      FC = "${pkgs.gfortran}/bin/gfortran";
+      F77 = "${pkgs.gfortran}/bin/gfortran";
+      F90 = "${pkgs.gfortran}/bin/gfortran";
+      CC = "${pkgs.gcc}/bin/gcc";
+      CXX = "${pkgs.gcc}/bin/g++";
+      
       buildInputs =
         [
           # Interactive bash (required for nix develop to work properly)
@@ -103,6 +111,12 @@ in {
           typos
           zola
           rav1e
+
+          # FIX: Add a consistent C/Fortran toolchain
+          gcc
+          gfortran
+          binutils
+          openblas
         ]
         ++ common.commonNativeBuildInputs
         ++ common.commonBuildInputs
@@ -151,6 +165,48 @@ in {
       doCheck = false;
 
       shellHook = ''
+        # For NVIDIA users on non-NixOS: build nixGL wrapper on first use
+        _build_nixgl_nvidia() {
+          local version="$1"
+          local nixgl_dir="$HOME/.cache/nixgl-nvidia-$version"
+          if [ ! -d "$nixgl_dir" ]; then
+            echo "Building nixGL for NVIDIA driver $version (first time only)..."
+            nix build --builders "" --impure --expr "
+              let 
+                pkgs = import (builtins.getFlake \"github:NixOS/nixpkgs/nixos-25.05\").outPath { 
+                  system = \"x86_64-linux\"; 
+                  config.allowUnfree = true; 
+                };
+                nixGL = import (builtins.getFlake \"github:nix-community/nixGL\").outPath {
+                  inherit pkgs;
+                  nvidiaVersion = \"$version\";
+                  enable32bits = false;
+                };
+              in nixGL.nixVulkanNvidia
+            " -o "$nixgl_dir" 2>&1
+          fi
+          echo "$nixgl_dir/bin/nixVulkanNvidia-$version"
+        }
+
+        # Wrapper function for running elodin with NVIDIA on non-NixOS
+        elodin-nvidia() {
+          if [ -f /proc/driver/nvidia/version ]; then
+            local nvidia_version=$(grep -oP '(?<=Module  )[0-9.]+' /proc/driver/nvidia/version 2>/dev/null || echo "")
+            if [ -n "$nvidia_version" ]; then
+              local wrapper=$(_build_nixgl_nvidia "$nvidia_version")
+              if [ -x "$wrapper" ]; then
+                exec "$wrapper" elodin "$@"
+              else
+                echo "Error: Failed to build nixGL wrapper"
+                return 1
+              fi
+            fi
+          fi
+          echo "Error: NVIDIA driver not detected. Use 'elodin' directly for non-NVIDIA systems."
+          return 1
+        }
+        export -f _build_nixgl_nvidia elodin-nvidia 2>/dev/null || true
+
         # start the shell if we're in an interactive shell
         if [[ $- == *i* ]]; then
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -161,6 +217,10 @@ in {
           echo "  • Rust: cargo, clippy, nextest"
           echo "  • Tools: uv, maturin, ruff, just, kubectl, gcloud"
           echo "  • Shell tools: eza, bat, delta, fzf, ripgrep, zoxide"
+          echo ""
+          if [ -f /proc/driver/nvidia/version ]; then
+            echo "NVIDIA GPU detected! Use 'elodin-nvidia editor' for GPU acceleration."
+          fi
           echo ""
           echo "SDK Development (if needed):"
           echo "  "
